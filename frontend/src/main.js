@@ -1,0 +1,42 @@
+import WA from 'waframe';
+import { APP } from './core/app.js';
+import { hydrate, getState } from './core/store.js';
+import { showToast } from './utils/toast.js';
+import { mountAppLayout } from './views/AppLayout.js';
+
+async function init() {  
+  globalThis.WA = WA;
+  globalThis.APP = APP;
+  APP.toast = showToast;
+
+  const app = document.getElementById('app');
+  if (!app) return;
+
+  if (APP.window) {
+    await hydrate();
+    const requestId = getState().uiState.activeRequestId;
+    if (requestId) {
+      await APP.components.history.loadForRequest(requestId);
+    }
+  } else {
+    console.warn('Wails bindings não disponíveis — modo preview');
+  }
+
+  APP.box = (id, config)=>{
+    WA.box(id, WA.hp.extend({ local: 'app', skin: 'REBEK' }, config));
+  };
+
+  APP.box_confirm = (id, config)=>{
+    WA.box(id, WA.hp.extend({ local:'app',skin:'REBEK',confirm:true,btAction:{text:'Sim, excluir',color:'red'},btCancel:{text:'Não, cancelar',color:'blue'}}, config));
+  };
+
+  APP.box_closed = (id)=>{
+    WA.box_closed(id);
+  };
+
+  mountAppLayout(app);
+}
+
+init();
+
+WA.APP.Element.add('app', '#app');

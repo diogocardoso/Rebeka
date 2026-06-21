@@ -1,0 +1,32 @@
+# Binários e build
+/build/
+/rebeka.exe
+*.exe
+
+# Go
+/vendor/
+
+# Frontend
+/frontend/node_modules/
+/frontend/dist/
+
+# Wails gerado (manter wailsjs versionado ou não — dist ignorado)
+# /frontend/wailsjs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Cursor / skills locais
+.cursor/
+.skills/
+
+# Dados locais
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+Thumbs.db
+.DS_Store
