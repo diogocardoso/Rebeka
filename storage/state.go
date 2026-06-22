@@ -6,11 +6,12 @@ import (
 )
 
 type UIState struct {
-	ActiveWorkspaceID string `json:"activeWorkspaceId"`
-	ActiveHostID      string `json:"activeHostId"`
-	ActiveRequestID   string `json:"activeRequestId"`
-	ActiveView        string `json:"activeView"`
-	SidebarWidth      int    `json:"sidebarWidth"`
+	ActiveWorkspaceID   string `json:"activeWorkspaceId"`
+	ActiveEnvironmentID string `json:"activeEnvironmentId"`
+	ActiveHostID        string `json:"activeHostId"` // legado — migrado para activeEnvironmentId
+	ActiveRequestID     string `json:"activeRequestId"`
+	ActiveView          string `json:"activeView"`
+	SidebarWidth        int    `json:"sidebarWidth"`
 }
 
 func defaultUIState() UIState {
@@ -55,7 +56,6 @@ func (db *DB) SaveUIState(state UIState) error {
 type LoadResult struct {
 	UIState      UIState       `json:"uiState"`
 	Workspaces   []Workspace   `json:"workspaces"`
-	Hosts        []Host        `json:"hosts"`
 	Tree         []TreeNode    `json:"tree"`
 	Requests     []RequestData `json:"requests"`
 	Environments []Environment `json:"environments"`
@@ -70,37 +70,68 @@ func (db *DB) LoadAll() (LoadResult, error) {
 	if err != nil {
 		return result, err
 	}
+	if result.UIState.ActiveEnvironmentID == "" && result.UIState.ActiveHostID != "" {
+		result.UIState.ActiveEnvironmentID = result.UIState.ActiveHostID
+	}
 	result.Workspaces, err = db.ListWorkspaces()
 	if err != nil {
 		return result, err
 	}
-	if result.UIState.ActiveWorkspaceID != "" {
-		result.Hosts, err = db.ListHosts(result.UIState.ActiveWorkspaceID)
+	wsID := result.UIState.ActiveWorkspaceID
+	if wsID == "" {
+		result.JobRuns, _ = db.ListRecentJobRuns(50)
+		return result, nil
+	}
+
+	result.Environments, err = db.ListEnvironments(wsID)
+	if err != nil {
+		return result, err
+	}
+	for i := range result.Environments {
+		vars, err := db.ListEnvVariables(result.Environments[i].ID)
 		if err != nil {
 			return result, err
 		}
-		activeHostID := result.UIState.ActiveHostID
-		if activeHostID != "" {
-			host, err := db.GetHost(activeHostID)
-			if err != nil || host.WorkspaceID != result.UIState.ActiveWorkspaceID {
-				activeHostID = ""
+		result.Environments[i].Variables = vars
+	}
+
+	activeEnvID := result.UIState.ActiveEnvironmentID
+	if activeEnvID != "" {
+		found := false
+		for _, e := range result.Environments {
+			if e.ID == activeEnvID {
+				found = true
+				break
 			}
 		}
-		if activeHostID == "" {
-			host, _ := db.GetActiveHost(result.UIState.ActiveWorkspaceID)
-			activeHostID = host.ID
-			result.UIState.ActiveHostID = activeHostID
+		if !found {
+			activeEnvID = ""
 		}
-		if activeHostID != "" {
-			hostData, err := db.LoadHostData(activeHostID)
-			if err != nil {
-				return result, err
+	}
+	if activeEnvID == "" {
+		for _, e := range result.Environments {
+			if e.IsActive {
+				activeEnvID = e.ID
+				break
 			}
-			result.Tree = hostData.Tree
-			result.Requests = hostData.Requests
-			result.Environments = hostData.Environments
-			result.Workflows = hostData.Workflows
 		}
+	}
+	if activeEnvID == "" && len(result.Environments) > 0 {
+		activeEnvID = result.Environments[0].ID
+	}
+	result.UIState.ActiveEnvironmentID = activeEnvID
+
+	result.Tree, err = db.ListTreeNodes(wsID)
+	if err != nil {
+		return result, err
+	}
+	result.Requests, err = db.ListRequestsForWorkspace(wsID)
+	if err != nil {
+		return result, err
+	}
+	result.Workflows, err = db.ListWorkflows(wsID)
+	if err != nil {
+		return result, err
 	}
 	result.JobRuns, _ = db.ListRecentJobRuns(50)
 	return result, nil

@@ -1,5 +1,6 @@
-import { getState, patchState, scheduleSave } from '../../core/store.js';
+import { getState } from '../../core/store.js';
 import { Register } from '../../core/register.js';
+import { removeNode } from '../../core/components/sidebar.js';
 import { RequestForm, RenameForm } from './forms.js';
 export class Handlers extends Register {
   handlers() {
@@ -25,14 +26,14 @@ export class Handlers extends Register {
         });
     });
     
-    APP.fn('deleteSidebar', (id) => {
-        APP.data.tree.remove(id);
-        patchState((s) => {
-          const tree = s.tree.filter((n) => n.id !== id);
+    APP.fn('deleteSidebar', async (id) => {
+        try {
+          await removeNode(id);
           APP.box_closed('boxDeleteSidebar');
-          return { ...s, tree };
-        });
-        scheduleSave();
+        } catch (e) {
+          console.error('Delete sidebar failed:', e);
+          APP.toast?.('Falha ao excluir item', { type: 'error' });
+        }
     });
 
     APP.fn('confirmDeleteWorkspace', () => {

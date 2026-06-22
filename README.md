@@ -10,7 +10,7 @@ Sem abas infinitas no browser. Sem extensões estranhas. Só você, a API e um d
     ╔══════════════════════════════════════════════════════╗
     ║  R E B E K A                                         ║
     ║  ─────────────────────────────────────────────────   ║
-    ║  Workspace  →  Host  →  Request  →  ✓ 200 OK  42ms  ║
+    ║  Workspace  →  Host  →  Request  →  ✓ 200 OK  42ms   ║
     ╚══════════════════════════════════════════════════════╝
 ```
 
@@ -191,7 +191,9 @@ O binário `rebeka` será gerado na pasta `build/bin/`.
 - **Persistência centralizada** — se não está no SQLite, não existe.
 - **WAFrame first** — modais via `APP.box`, botões via `WA.Show.button`, ícones via `WA.Icon`.
 
-Documentação interna para devs: [`.cursor/docs/system-map.md`](.cursor/docs/system-map.md)
+Documentação para **usuários** da ferramenta: botão **Documentação** no app (pasta [`docs/`](docs/)).
+
+Documentação para **desenvolvimento**: [`.cursor/docs/system-map.md`](.cursor/docs/system-map.md)
 
 ---
 

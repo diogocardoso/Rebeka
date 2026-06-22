@@ -12,16 +12,6 @@ async function init() {
   const app = document.getElementById('app');
   if (!app) return;
 
-  if (APP.window) {
-    await hydrate();
-    const requestId = getState().uiState.activeRequestId;
-    if (requestId) {
-      await APP.components.history.loadForRequest(requestId);
-    }
-  } else {
-    console.warn('Wails bindings não disponíveis — modo preview');
-  }
-
   APP.box = (id, config)=>{
     WA.box(id, WA.hp.extend({ local: 'app', skin: 'REBEK' }, config));
   };
@@ -35,6 +25,21 @@ async function init() {
   };
 
   mountAppLayout(app);
+
+  if (APP.window) {
+    try {
+      await hydrate();
+      const requestId = getState().uiState.activeRequestId;
+      if (requestId) {
+        await APP.components.history.loadForRequest(requestId);
+      }
+    } catch (e) {
+      console.error('Init hydrate failed:', e);
+      APP.toast?.('Erro ao carregar dados. Verifique o banco SQLite.', { type: 'error', duration: 5000 });
+    }
+  } else {
+    console.warn('Wails bindings não disponíveis — modo preview');
+  }
 }
 
 init();

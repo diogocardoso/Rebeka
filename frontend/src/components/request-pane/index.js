@@ -67,7 +67,8 @@ function render(state) {
     return;
   }
 
-  const baseUrl = state.activeHost?.baseUrl || '';
+  const nameEnv = state.activeEnvironment?.name || '';
+  const baseUrl = state.activeEnvironment?.baseUrl || '';
   const envVars = resolveEnvVars(state);
   const absoluteMode = isAbsoluteUrlMode(req);
   const urlPreview = buildUrlPreview(req, baseUrl, envVars);
@@ -87,7 +88,7 @@ function render(state) {
             ${absoluteMode ? `
               <div class="url-input var-input-host url-full" data-var-field="url"></div>
             ` : `
-              <input type="text" class="url-base" readonly value="${escapeAttr(baseUrl)}" title="Base URL do host" />
+              <div class="url-base">${nameEnv}</div>
               <div class="url-input var-input-host" data-var-field="url"></div>
             `}
           </div>
@@ -105,7 +106,7 @@ function render(state) {
         ${tabBtn('body', 'Body')}
         ${tabBtn('auth', 'Auth')}
         ${tabBtn('prescript', 'Pre-request')}
-        ${tabBtn('postscript', 'Tests')}
+        ${tabBtn('postscript', 'Result')}
       </div>
       <div class="request-tab-content scroll-y">
         <div class="tab-panel ${activeTab === 'params' ? '' : 'hidden'}" data-panel="params">
@@ -127,13 +128,17 @@ function render(state) {
           ${renderAuth(req)}
         </div>
         <div class="tab-panel ${activeTab === 'prescript' ? '' : 'hidden'}" data-panel="prescript">
-          <textarea class="script-editor" data-field="preScript" rows="14" placeholder="// Manipule req antes do envio&#10;// req.headers.push({key:'X-Token', value:'abc', enabled:true})">${escapeHtml(req.preScript || '')}</textarea>
+          <p class="script-tests-hint text-muted">Executado antes do envio: manipule <code>req</code> e <code>env</code>. Use <code>await execute("Pasta.Request")</code> para chamar outra request da coleção.</p>
+          ${renderScriptCodeEditor('preScript', req.preScript || '', {
+    rows: 14,
+    placeholder: "// const login = await execute('Auth.login');\n// req.headers.push({ key: 'Authorization', value: 'Bearer ' + login.data.token, enabled: true });",
+  })}
         </div>
         <div class="tab-panel ${activeTab === 'postscript' ? '' : 'hidden'}" data-panel="postscript">
-          <p class="script-tests-hint text-muted">Executado após a resposta: use <code>assert.*</code> para validar e <code>setVar('nome', valor)</code> para gravar variáveis do host.</p>
+          <p class="script-tests-hint text-muted">Executado após a resposta: <code>assert.*</code>, <code>setVar</code> e <code>await execute("Pasta.Sub.request")</code> para encadear requests de outro workspace.</p>
           ${renderScriptCodeEditor('postScript', req.postScript || '', {
     rows: 14,
-    placeholder: "// assert.equal(res.statusCode, 200, 'Status OK');\n// setVar('token_auth', JSON.parse(res.body).token);",
+    placeholder: "// assert.equal(res.statusCode, 200, 'Status OK');\n// const grid = await execute('Frota.Empresa.dataGrid', 'Sinetram');\n// assert.exists(grid.data, 'dataGrid retornou dados');",
   })}
         </div>
       </div>
@@ -203,7 +208,7 @@ function bindEvents(req, state) {
     if (!freshReq) return;
     const fullUrl = resolveFullUrl(
       freshReq,
-      current.activeHost?.baseUrl || '',
+      current.activeEnvironment?.baseUrl || '',
       resolveEnvVars(current),
     );
     copyUrl(fullUrl);
@@ -254,7 +259,7 @@ function bindEvents(req, state) {
   bindBodyPicker(varKeys);
   refreshBodyHighlight(req.body, resolveEnvVars(state));
 
-  el.querySelectorAll('[data-script-editor="postScript"]').forEach((wrap) => {
+  el.querySelectorAll('[data-script-editor="preScript"], [data-script-editor="postScript"]').forEach((wrap) => {
     bindScriptCodeEditor(wrap);
   });
 }
@@ -388,7 +393,7 @@ function refreshUrlPreview(id, pathValue, state) {
   const s = state || getState();
   preview.innerHTML = buildUrlPreview(
     { ...req, url: pathValue ?? req.url },
-    s.activeHost?.baseUrl || '',
+    s.activeEnvironment?.baseUrl || '',
     resolveEnvVars(s),
   );
 }

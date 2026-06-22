@@ -3,8 +3,8 @@ import { APP } from '../../core/app.js';
 
 export function openEnvModal() {
   const state = getState();
-  const hostId = state.uiState.activeHostId;
-  if (!hostId) return;
+  const wsId = state.uiState.activeWorkspaceId;
+  if (!wsId) return;
 
   const content = document.createElement('div');
   content.className = 'env-modal';
@@ -17,26 +17,26 @@ export function openEnvModal() {
 
   if (typeof APP !== 'undefined' && APP.box) {
     APP.box('env-manager', {
-      title: 'Perfis de Variáveis',
+      title: 'Ambientes e Variáveis',
       content: content.outerHTML,
       width: 720,
       height: 480,
       skin: 'dark',
       btClose: true,
     });
-    setTimeout(() => renderEnvList(hostId), 100);
+    setTimeout(() => renderEnvList(wsId), 100);
   } else {
-    renderInlineModal(content, hostId);
+    renderInlineModal(content, wsId);
   }
 }
 
-function renderInlineModal(content, hostId) {
+function renderInlineModal(content, wsId) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal-box">
       <div class="modal-header">
-        <h3>Perfis de Variáveis</h3>
+        <h3>Ambientes e Variáveis</h3>
         <button class="modal-close">×</button>
       </div>
       <div class="modal-body">${content.innerHTML}</div>
@@ -44,24 +44,23 @@ function renderInlineModal(content, hostId) {
   `;
   document.body.appendChild(overlay);
   overlay.querySelector('.modal-close').addEventListener('click', () => overlay.remove());
-  renderEnvList(hostId, overlay);
+  renderEnvList(wsId, overlay);
 }
 
-async function renderEnvList(hostId, root = document) {
+async function renderEnvList(wsId, root = document) {
   const listEl = root.querySelector('#env-list') || document.getElementById('env-list');
   if (!listEl) return;
 
-  const envs = await APP.components.envManager.findAll(hostId);
-  const wsId = getState().uiState.activeWorkspaceId;
+  const envs = await APP.components.envManager.findAll(wsId);
 
   listEl.innerHTML = `
-    <button class="btn btn-ghost env-add">+ Novo perfil</button>
+    <button class="btn btn-ghost env-add">+ Novo ambiente</button>
     ${(envs || []).map((e) => `
       <div class="env-item ${e.isActive ? 'active' : ''}" data-env-id="${e.id}">
-        <span>${escape(e.name)}</span>
+        <span>${escape(e.name)} <small class="text-muted">${escape(e.baseUrl || '')}</small></span>
         <div class="env-item-actions">
           <button data-activate="${e.id}" title="Ativar">✓</button>
-          <button data-edit="${e.id}" title="Editar">✎</button>
+          <button data-edit="${e.id}" title="Editar vars">✎</button>
           <button data-delete-env="${e.id}" title="Excluir">×</button>
         </div>
       </div>
@@ -69,16 +68,18 @@ async function renderEnvList(hostId, root = document) {
   `;
 
   listEl.querySelector('.env-add')?.addEventListener('click', async () => {
-    const name = prompt('Nome do perfil:', 'Padrão');
+    const name = prompt('Nome do ambiente:', 'Homolog');
     if (!name) return;
-    await APP.components.envManager.create(wsId, name);
-    renderEnvList(hostId, root);
+    const baseUrl = prompt('Base URL:', 'http://localhost:3000');
+    if (!baseUrl) return;
+    await APP.components.environment.create(wsId, name, baseUrl);
+    renderEnvList(wsId, root);
   });
 
   listEl.querySelectorAll('[data-activate]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await APP.components.envManager.activate(hostId, btn.dataset.activate);
-      renderEnvList(hostId, root);
+      await APP.components.environment.activate(wsId, btn.dataset.activate);
+      renderEnvList(wsId, root);
     });
   });
 
@@ -88,9 +89,9 @@ async function renderEnvList(hostId, root = document) {
 
   listEl.querySelectorAll('[data-delete-env]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Excluir perfil?')) return;
-      await APP.components.envManager.delete(btn.dataset.deleteEnv);
-      renderEnvList(hostId, root);
+      if (!confirm('Excluir ambiente?')) return;
+      await APP.components.environment.delete(btn.dataset.deleteEnv);
+      renderEnvList(wsId, root);
     });
   });
 }
@@ -136,7 +137,7 @@ function renderEnvEditor(envId, envs, wsId, root) {
       value: tr.querySelector('[data-var-val]')?.value || '',
     })).filter((r) => r.key);
     await APP.components.envManager.edit(envId, rows, wsId);
-    alert('Variáveis salvas');
+    APP.toast?.('Variáveis salvas', { type: 'success' });
   });
 }
 

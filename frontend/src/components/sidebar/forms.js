@@ -13,7 +13,7 @@ export function RenameForm(node) {
                 attr: { class: 'wa-form', value: node.name },
             });
 
-            Form.submit({ text: 'Salvar', color: 'purple' });
+            Form.submit({ text: 'Salvar', color: 'orange-5' });
 
             Form.action(async (data) => {
                 const name = data.values.name?.trim();
@@ -43,7 +43,7 @@ export function RequestForm(Colletion){
         app(){
             Form.item.text('name', { label: '*Nome:', attr: { class: 'wa-form' } });
 
-            Form.submit({ text: 'Salvar', color: 'purple' });
+            Form.submit({ text: 'Salvar', color: 'orange-5' });
 
             Form.action(async (data) => {
                 const name = data.values.name?.trim();
@@ -52,7 +52,6 @@ export function RequestForm(Colletion){
                 await createNode('request', name, {
                     parentId: Colletion.id,
                     workspaceId: Colletion.workspaceId,
-                    hostId: Colletion.hostId,
                 });
 
                 WA.box_closed('boxFormSidebar');

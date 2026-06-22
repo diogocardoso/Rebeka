@@ -19,9 +19,9 @@ export async function setActiveView(view) {
   applyViewUI?.(view);
 
   if (view === 'variables') {
-    const { activeHostId } = getState().uiState;
-    if (activeHostId && !(getState().environments || []).length) {
-      await APP.components.envManager.findAll(activeHostId);
+    const wsId = getState().uiState.activeWorkspaceId;
+    if (wsId && !(getState().environments || []).length) {
+      await APP.components.envManager.findAll(wsId);
     }
   }
 

@@ -113,60 +113,29 @@ export namespace client {
 
 }
 
-export namespace storage {
+export namespace docs {
 	
-	export class Host {
+	export class DocEntry {
 	    id: string;
-	    workspaceId: string;
-	    name: string;
-	    baseUrl: string;
-	    isActive: boolean;
+	    title: string;
+	    order: number;
 	
 	    static createFrom(source: any = {}) {
-	        return new Host(source);
+	        return new DocEntry(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
-	        this.workspaceId = source["workspaceId"];
-	        this.name = source["name"];
-	        this.baseUrl = source["baseUrl"];
-	        this.isActive = source["isActive"];
+	        this.title = source["title"];
+	        this.order = source["order"];
 	    }
 	}
-	export class ActiveHostVarsResult {
-	    host: Host;
-	    variables: Record<string, string>;
+
+}
+
+export namespace storage {
 	
-	    static createFrom(source: any = {}) {
-	        return new ActiveHostVarsResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.host = this.convertValues(source["host"], Host);
-	        this.variables = source["variables"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class EnvVariable {
 	    id: string;
 	    environmentId: string;
@@ -188,9 +157,10 @@ export namespace storage {
 	export class Environment {
 	    id: string;
 	    workspaceId: string;
-	    hostId: string;
 	    name: string;
+	    baseUrl: string;
 	    isActive: boolean;
+	    hostId?: string;
 	    variables?: EnvVariable[];
 	
 	    static createFrom(source: any = {}) {
@@ -201,9 +171,10 @@ export namespace storage {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.workspaceId = source["workspaceId"];
-	        this.hostId = source["hostId"];
 	        this.name = source["name"];
+	        this.baseUrl = source["baseUrl"];
 	        this.isActive = source["isActive"];
+	        this.hostId = source["hostId"];
 	        this.variables = this.convertValues(source["variables"], EnvVariable);
 	    }
 	
@@ -224,6 +195,62 @@ export namespace storage {
 		    }
 		    return a;
 		}
+	}
+	export class ActiveEnvironmentResult {
+	    environment: Environment;
+	    variables: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new ActiveEnvironmentResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.environment = this.convertValues(source["environment"], Environment);
+	        this.variables = source["variables"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class ExecuteScriptResult {
+	    statusCode: number;
+	    body: string;
+	    headers: Record<string, string>;
+	    durationMs: number;
+	    data?: any;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExecuteScriptResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.statusCode = source["statusCode"];
+	        this.body = source["body"];
+	        this.headers = source["headers"];
+	        this.durationMs = source["durationMs"];
+	        this.data = source["data"];
+	        this.error = source["error"];
+	    }
 	}
 	export class HistoryEntry {
 	    id: string;
@@ -253,11 +280,31 @@ export namespace storage {
 	        this.createdAt = source["createdAt"];
 	    }
 	}
+	export class JobRun {
+	    id: string;
+	    workflowId: string;
+	    status: string;
+	    details: string;
+	    startedAt: string;
+	    finishedAt?: string;
 	
+	    static createFrom(source: any = {}) {
+	        return new JobRun(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.workflowId = source["workflowId"];
+	        this.status = source["status"];
+	        this.details = source["details"];
+	        this.startedAt = source["startedAt"];
+	        this.finishedAt = source["finishedAt"];
+	    }
+	}
 	export class Workflow {
 	    id: string;
 	    workspaceId: string;
-	    hostId: string;
 	    name: string;
 	    graph: string;
 	
@@ -269,7 +316,6 @@ export namespace storage {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.workspaceId = source["workspaceId"];
-	        this.hostId = source["hostId"];
 	        this.name = source["name"];
 	        this.graph = source["graph"];
 	    }
@@ -311,7 +357,6 @@ export namespace storage {
 	export class TreeNode {
 	    id: string;
 	    workspaceId: string;
-	    hostId: string;
 	    parentId?: string;
 	    name: string;
 	    type: string;
@@ -325,69 +370,10 @@ export namespace storage {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.workspaceId = source["workspaceId"];
-	        this.hostId = source["hostId"];
 	        this.parentId = source["parentId"];
 	        this.name = source["name"];
 	        this.type = source["type"];
 	        this.sortOrder = source["sortOrder"];
-	    }
-	}
-	export class HostLoadData {
-	    tree: TreeNode[];
-	    requests: RequestData[];
-	    environments: Environment[];
-	    workflows: Workflow[];
-	
-	    static createFrom(source: any = {}) {
-	        return new HostLoadData(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.tree = this.convertValues(source["tree"], TreeNode);
-	        this.requests = this.convertValues(source["requests"], RequestData);
-	        this.environments = this.convertValues(source["environments"], Environment);
-	        this.workflows = this.convertValues(source["workflows"], Workflow);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class JobRun {
-	    id: string;
-	    workflowId: string;
-	    status: string;
-	    details: string;
-	    startedAt: string;
-	    finishedAt?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new JobRun(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.workflowId = source["workflowId"];
-	        this.status = source["status"];
-	        this.details = source["details"];
-	        this.startedAt = source["startedAt"];
-	        this.finishedAt = source["finishedAt"];
 	    }
 	}
 	export class Workspace {
@@ -406,6 +392,7 @@ export namespace storage {
 	}
 	export class UIState {
 	    activeWorkspaceId: string;
+	    activeEnvironmentId: string;
 	    activeHostId: string;
 	    activeRequestId: string;
 	    activeView: string;
@@ -418,6 +405,7 @@ export namespace storage {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.activeWorkspaceId = source["activeWorkspaceId"];
+	        this.activeEnvironmentId = source["activeEnvironmentId"];
 	        this.activeHostId = source["activeHostId"];
 	        this.activeRequestId = source["activeRequestId"];
 	        this.activeView = source["activeView"];
@@ -427,7 +415,6 @@ export namespace storage {
 	export class LoadResult {
 	    uiState: UIState;
 	    workspaces: Workspace[];
-	    hosts: Host[];
 	    tree: TreeNode[];
 	    requests: RequestData[];
 	    environments: Environment[];
@@ -442,7 +429,6 @@ export namespace storage {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.uiState = this.convertValues(source["uiState"], UIState);
 	        this.workspaces = this.convertValues(source["workspaces"], Workspace);
-	        this.hosts = this.convertValues(source["hosts"], Host);
 	        this.tree = this.convertValues(source["tree"], TreeNode);
 	        this.requests = this.convertValues(source["requests"], RequestData);
 	        this.environments = this.convertValues(source["environments"], Environment);
@@ -471,7 +457,6 @@ export namespace storage {
 	export class ManageEnvsInput {
 	    action: string;
 	    workspaceId: string;
-	    hostId: string;
 	    environment: Environment;
 	    variables: EnvVariable[];
 	    envId: string;
@@ -484,7 +469,6 @@ export namespace storage {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.action = source["action"];
 	        this.workspaceId = source["workspaceId"];
-	        this.hostId = source["hostId"];
 	        this.environment = this.convertValues(source["environment"], Environment);
 	        this.variables = this.convertValues(source["variables"], EnvVariable);
 	        this.envId = source["envId"];
@@ -508,22 +492,25 @@ export namespace storage {
 		    return a;
 		}
 	}
-	export class ManageHostsInput {
-	    action: string;
+	
+	export class ResolvedRequestContext {
 	    workspaceId: string;
-	    host: Host;
-	    hostId: string;
+	    workspaceName: string;
+	    request: RequestData;
+	    baseUrl: string;
+	    envVars: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
-	        return new ManageHostsInput(source);
+	        return new ResolvedRequestContext(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.action = source["action"];
 	        this.workspaceId = source["workspaceId"];
-	        this.host = this.convertValues(source["host"], Host);
-	        this.hostId = source["hostId"];
+	        this.workspaceName = source["workspaceName"];
+	        this.request = this.convertValues(source["request"], RequestData);
+	        this.baseUrl = source["baseUrl"];
+	        this.envVars = source["envVars"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -544,7 +531,6 @@ export namespace storage {
 		    return a;
 		}
 	}
-	
 	export class SavePayload {
 	    uiState: UIState;
 	    workspace?: Workspace;

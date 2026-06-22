@@ -16,8 +16,8 @@ function render(state) {
   }
   el.innerHTML = `
     <div class="scripts-pane empty-pane">
-      <h3>Scripts do host</h3>
-      <p class="text-muted">Em breve — scripts compartilhados por host.</p>
+      <h3>Scripts do workspace</h3>
+      <p class="text-muted">Em breve — scripts compartilhados por workspace.</p>
     </div>
   `;
 }

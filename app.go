@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"rebeka/bek"
 	"rebeka/client"
+	"rebeka/docs"
 	"rebeka/storage"
 	"rebeka/workflow"
 )
@@ -49,11 +51,16 @@ func (a *App) startup(ctx context.Context) {
 	if state.ActiveWorkspaceID == "" {
 		state.ActiveWorkspaceID = ws.ID
 	}
-	host, _ := db.GetActiveHost(ws.ID)
-	if state.ActiveHostID == "" && host.ID != "" {
-		state.ActiveHostID = host.ID
+	if state.ActiveEnvironmentID == "" && state.ActiveHostID != "" {
+		state.ActiveEnvironmentID = state.ActiveHostID
 	}
-	if state.ActiveWorkspaceID != "" || state.ActiveHostID != "" {
+	if state.ActiveEnvironmentID == "" {
+		env, _, _ := db.GetActiveEnvironment(ws.ID)
+		if env.ID != "" {
+			state.ActiveEnvironmentID = env.ID
+		}
+	}
+	if state.ActiveWorkspaceID != "" || state.ActiveEnvironmentID != "" {
 		_ = db.SaveUIState(state)
 	}
 }
@@ -93,8 +100,8 @@ func (a *App) DeleteWorkspace(id string) error {
 	return a.db.DeleteWorkspace(id)
 }
 
-func (a *App) CreateTreeNode(workspaceID, hostID string, parentID *string, name, nodeType string) (map[string]interface{}, error) {
-	node, req, err := a.db.CreateTreeNode(workspaceID, hostID, parentID, name, nodeType)
+func (a *App) CreateTreeNode(workspaceID string, parentID *string, name, nodeType string) (map[string]interface{}, error) {
+	node, req, err := a.db.CreateTreeNode(workspaceID, parentID, name, nodeType)
 	if err != nil {
 		return nil, err
 	}
@@ -142,24 +149,8 @@ func (a *App) GetActiveEnvVars(workspaceID string) (map[string]string, error) {
 	return vars, err
 }
 
-func (a *App) ManageHosts(input storage.ManageHostsInput) (interface{}, error) {
-	return a.db.ManageHosts(input)
-}
-
-func (a *App) LoadHostData(hostID string) (storage.HostLoadData, error) {
-	return a.db.LoadHostData(hostID)
-}
-
-func (a *App) MirrorHostStructure(sourceHostID, targetHostID string) (int, error) {
-	return a.db.MirrorHostStructure(sourceHostID, targetHostID)
-}
-
-func (a *App) MirrorTreeBranch(sourceNodeID, targetHostID string) (int, error) {
-	return a.db.MirrorTreeBranch(sourceNodeID, targetHostID)
-}
-
-func (a *App) GetActiveHostVars(workspaceID string) (storage.ActiveHostVarsResult, error) {
-	return a.db.GetActiveHostVars(workspaceID)
+func (a *App) GetActiveEnvironmentInfo(workspaceID string) (storage.ActiveEnvironmentResult, error) {
+	return a.db.GetActiveEnvironmentInfo(workspaceID)
 }
 
 func (a *App) ExportBek(workspaceID string) (string, error) {
@@ -195,8 +186,8 @@ func (a *App) ImportBek() (storage.Workspace, error) {
 	return bek.Import(a.db, path)
 }
 
-func (a *App) CreateWorkflow(workspaceID, hostID, name string) (storage.Workflow, error) {
-	return a.db.CreateWorkflow(workspaceID, hostID, name)
+func (a *App) CreateWorkflow(workspaceID, name string) (storage.Workflow, error) {
+	return a.db.CreateWorkflow(workspaceID, name)
 }
 
 func (a *App) SaveWorkflowGraph(id, graph string) error {
@@ -240,4 +231,34 @@ func (a *App) ListHistory(requestID string) ([]storage.HistoryEntry, error) {
 
 func (a *App) UpdateLatestHistoryTests(requestID, testResults string) error {
 	return a.db.UpdateLatestHistoryTests(requestID, testResults)
+}
+
+func (a *App) ListDocs() ([]docs.DocEntry, error) {
+	return docs.List()
+}
+
+func (a *App) GetDocContent(id string) (string, error) {
+	return docs.Get(id)
+}
+
+func (a *App) ResolveRequestByPath(path, workspaceRef string) (storage.ResolvedRequestContext, error) {
+	if a.db == nil {
+		return storage.ResolvedRequestContext{}, fmt.Errorf("database not initialized")
+	}
+	ref := strings.TrimSpace(workspaceRef)
+	if ref == "" {
+		return storage.ResolvedRequestContext{}, fmt.Errorf("workspace não informado")
+	}
+	return a.db.ResolveRequestByPath(path, ref)
+}
+
+func (a *App) ExecuteByPath(path, workspaceName string, envOverrides map[string]string) (storage.ExecuteScriptResult, error) {
+	if a.db == nil {
+		return storage.ExecuteScriptResult{}, fmt.Errorf("database not initialized")
+	}
+	wsRef := strings.TrimSpace(workspaceName)
+	if wsRef == "" {
+		return storage.ExecuteScriptResult{Error: "workspace deve ser informado pelo frontend"}, nil
+	}
+	return a.db.ExecuteByPath(path, wsRef, envOverrides)
 }

@@ -1,8 +1,8 @@
 import { getState, patchState, scheduleSave } from '../store.js';
 import { data } from '../data/index.js';
 
-export async function create(workspaceId, hostId, name) {
-  const wf = await data.workflow.create(workspaceId, hostId, name || 'Novo Workflow');
+export async function create(workspaceId, name) {
+  const wf = await data.workflow.create(workspaceId, name || 'Novo Workflow');
   patchState((s) => ({
     ...s,
     workflows: [...s.workflows, wf],

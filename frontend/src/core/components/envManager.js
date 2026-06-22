@@ -1,24 +1,16 @@
 import { getState, patchState } from '../store.js';
 import { data } from '../data/index.js';
 
-export async function create(wsId, name) {
-  const hostId = getState().uiState.activeHostId;
-  const env = await data.env.create(wsId, hostId, name);
-  await findAll(hostId);
+export async function create(wsId, name, baseUrl) {
+  const env = await data.env.create(wsId, name, baseUrl || 'http://localhost:3000');
+  await findAll(wsId);
   if (env?.id) {
-    await activate(hostId, env.id);
+    await activate(wsId, env.id);
   }
   return env;
 }
 
 export async function edit(envId, variables, wsId) {
-  const hostId = getState().uiState.activeHostId;
-  let envs = hostId ? await data.env.list(hostId) : [];
-  const target = envs.find((e) => e.id === envId);
-  if (target && !target.isActive && hostId) {
-    await data.env.setActive(hostId, envId);
-  }
-
   await data.env.saveVariables(envId, variables);
 
   const activeVars = {};
@@ -26,7 +18,7 @@ export async function edit(envId, variables, wsId) {
     if (v.key) activeVars[v.key] = v.value ?? '';
   });
 
-  envs = hostId ? await data.env.list(hostId) : envs;
+  const envs = await data.env.list(wsId);
   patchState((s) => ({ ...s, activeEnvVars: activeVars, environments: envs || [] }));
 }
 
@@ -34,22 +26,27 @@ export async function deleteEnv(envId) {
   await data.env.remove(envId);
 }
 
-export async function activate(hostId, envId) {
-  await data.env.setActive(hostId, envId);
-  const wsId = getState().uiState.activeWorkspaceId;
-  const [vars, envs] = await Promise.all([
-    data.env.getActiveVars(wsId),
-    data.env.list(hostId),
+export async function activate(wsId, envId) {
+  await data.env.setActive(wsId, envId);
+  const [info, envs] = await Promise.all([
+    data.env.getActiveInfo(wsId),
+    data.env.list(wsId),
   ]);
-  patchState((s) => ({ ...s, activeEnvVars: vars || {}, environments: envs || [] }));
+  patchState((s) => ({
+    ...s,
+    activeEnvVars: info?.variables || {},
+    environments: envs || [],
+    activeEnvironment: info?.environment || envs?.find((e) => e.id === envId) || null,
+    uiState: { ...s.uiState, activeEnvironmentId: envId },
+  }));
 }
 
 export function findByID(id) {
   return getState().environments.find((e) => e.id === id) || null;
 }
 
-export async function findAll(hostId) {
-  const envs = await data.env.list(hostId);
+export async function findAll(wsId) {
+  const envs = await data.env.list(wsId);
   patchState((s) => ({ ...s, environments: envs || [] }));
   return envs || [];
 }
@@ -63,8 +60,10 @@ export async function persistScriptVars(wsId, beforeVars, afterVars) {
   if (!changed) return;
 
   const state = getState();
-  const envs = state.environments || [];
-  const active = envs.find((e) => e.isActive) || envs[0];
+  const envId = state.uiState.activeEnvironmentId;
+  const active = state.environments?.find((e) => e.id === envId)
+    || state.environments?.find((e) => e.isActive)
+    || state.environments?.[0];
   if (!active?.id) return;
 
   const variables = Object.entries(afterVars).map(([key, value]) => ({ key, value }));

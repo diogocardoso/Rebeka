@@ -6,8 +6,7 @@ import { applyMove } from './treeMove.js';
 export async function create(type, defaultName, options = {}) {
   const state = getState();
   const wsId = options.workspaceId || state.uiState.activeWorkspaceId;
-  const hostId = options.hostId || state.uiState.activeHostId;
-  if (!wsId || !hostId) return;
+  if (!wsId) return;
 
   const parentId = options.parentId !== undefined
     ? options.parentId
@@ -15,7 +14,7 @@ export async function create(type, defaultName, options = {}) {
       ? state.tree.find((n) => n.id === state.uiState.activeRequestId && n.type === 'folder')?.id || null
       : null);
 
-  const result = await data.tree.create(wsId, hostId, parentId, defaultName, type);
+  const result = await data.tree.create(wsId, parentId, defaultName, type);
   const sortOrder = treeChildren(parentId).length;
 
   patchState((s) => {
@@ -24,7 +23,7 @@ export async function create(type, defaultName, options = {}) {
     return {
       ...s,
       ...(type === 'request' ? { ...REQUEST_SESSION_RESET, requestHistory: [] } : {}),
-      tree: [...s.tree, { ...result.node, hostId, parentId: parentId || null, sortOrder }],
+      tree: [...s.tree, { ...result.node, parentId: parentId || null, sortOrder }],
       requests,
       uiState: {
         ...s.uiState,
@@ -57,25 +56,44 @@ export async function edit(id, currentName) {
   await rename(id, name);
 }
 
-export async function deleteNode(id) {
-  if (!confirm('Excluir este item?')) return;
+function collectSubtreeIds(tree, rootId) {
+  const ids = new Set([rootId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const n of tree) {
+      if (n.parentId && ids.has(n.parentId) && !ids.has(n.id)) {
+        ids.add(n.id);
+        changed = true;
+      }
+    }
+  }
+  return ids;
+}
 
+export async function removeNode(id) {
   await data.tree.remove(id);
   patchState((s) => {
-    const tree = s.tree.filter((n) => n.id !== id);
+    const idsToRemove = collectSubtreeIds(s.tree, id);
+    const tree = s.tree.filter((n) => !idsToRemove.has(n.id));
     const requests = { ...s.requests };
-    delete requests[id];
+    idsToRemove.forEach((rid) => delete requests[rid]);
     return {
       ...s,
       tree,
       requests,
       uiState: {
         ...s.uiState,
-        activeRequestId: s.uiState.activeRequestId === id ? '' : s.uiState.activeRequestId,
+        activeRequestId: idsToRemove.has(s.uiState.activeRequestId) ? '' : s.uiState.activeRequestId,
       },
     };
   });
   scheduleSave();
+}
+
+export async function deleteNode(id) {
+  if (!confirm('Excluir este item?')) return;
+  await removeNode(id);
 }
 
 export function findByID(id) {
@@ -83,8 +101,7 @@ export function findByID(id) {
 }
 
 export function findAll(parentId = null) {
-  const hostId = getState().uiState.activeHostId;
-  return treeChildren(parentId).filter((n) => n.hostId === hostId || !hostId);
+  return treeChildren(parentId);
 }
 
 export function moveNode(nodeId, referenceNodeId, zone) {
@@ -102,4 +119,4 @@ export function moveNode(nodeId, referenceNodeId, zone) {
   scheduleSave();
 }
 
-export const sidebar = { create, edit, rename, delete: deleteNode, findByID, findAll, moveNode };
+export const sidebar = { create, edit, rename, delete: deleteNode, remove: removeNode, findByID, findAll, moveNode };

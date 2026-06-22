@@ -8,7 +8,6 @@ import (
 type Workflow struct {
 	ID          string `json:"id"`
 	WorkspaceID string `json:"workspaceId"`
-	HostID      string `json:"hostId"`
 	Name        string `json:"name"`
 	Graph       string `json:"graph"`
 }
@@ -30,17 +29,11 @@ type JobRun struct {
 	FinishedAt string `json:"finishedAt,omitempty"`
 }
 
-func (db *DB) ListWorkflowsByHost(hostID string) ([]Workflow, error) {
-	rows, err := db.conn.Query(`SELECT id, workspace_id, host_id, name, graph FROM workflows WHERE host_id = ? ORDER BY name`, hostID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanWorkflows(rows)
-}
-
 func (db *DB) ListWorkflows(workspaceID string) ([]Workflow, error) {
-	rows, err := db.conn.Query(`SELECT id, workspace_id, host_id, name, graph FROM workflows WHERE workspace_id = ? ORDER BY name`, workspaceID)
+	rows, err := db.conn.Query(
+		`SELECT id, workspace_id, name, graph FROM workflows WHERE workspace_id = ? ORDER BY name`,
+		workspaceID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -52,12 +45,8 @@ func scanWorkflows(rows *sql.Rows) ([]Workflow, error) {
 	var list []Workflow
 	for rows.Next() {
 		var w Workflow
-		var hostID sql.NullString
-		if err := rows.Scan(&w.ID, &w.WorkspaceID, &hostID, &w.Name, &w.Graph); err != nil {
+		if err := rows.Scan(&w.ID, &w.WorkspaceID, &w.Name, &w.Graph); err != nil {
 			return nil, err
-		}
-		if hostID.Valid {
-			w.HostID = hostID.String
 		}
 		list = append(list, w)
 	}
@@ -66,18 +55,17 @@ func scanWorkflows(rows *sql.Rows) ([]Workflow, error) {
 
 func (db *DB) GetWorkflow(id string) (Workflow, error) {
 	var w Workflow
-	var hostID sql.NullString
-	err := db.conn.QueryRow(`SELECT id, workspace_id, host_id, name, graph FROM workflows WHERE id = ?`, id).
-		Scan(&w.ID, &w.WorkspaceID, &hostID, &w.Name, &w.Graph)
-	if hostID.Valid {
-		w.HostID = hostID.String
-	}
+	err := db.conn.QueryRow(`SELECT id, workspace_id, name, graph FROM workflows WHERE id = ?`, id).
+		Scan(&w.ID, &w.WorkspaceID, &w.Name, &w.Graph)
 	return w, err
 }
 
-func (db *DB) CreateWorkflow(workspaceID, hostID, name string) (Workflow, error) {
-	w := Workflow{ID: NewID(), WorkspaceID: workspaceID, HostID: hostID, Name: name, Graph: `{"nodes":[],"edges":[]}`}
-	_, err := db.conn.Exec(`INSERT INTO workflows(id, workspace_id, host_id, name, graph) VALUES(?,?,?,?,?)`, w.ID, w.WorkspaceID, w.HostID, w.Name, w.Graph)
+func (db *DB) CreateWorkflow(workspaceID, name string) (Workflow, error) {
+	w := Workflow{ID: NewID(), WorkspaceID: workspaceID, Name: name, Graph: `{"nodes":[],"edges":[]}`}
+	_, err := db.conn.Exec(
+		`INSERT INTO workflows(id, workspace_id, name, graph) VALUES(?,?,?,?)`,
+		w.ID, w.WorkspaceID, w.Name, w.Graph,
+	)
 	return w, err
 }
 
@@ -88,9 +76,9 @@ func (db *DB) SaveWorkflowGraph(id, graph string) error {
 
 func (db *DB) saveWorkflowTx(tx *sql.Tx, w Workflow) error {
 	_, err := tx.Exec(
-		`INSERT INTO workflows(id, workspace_id, host_id, name, graph) VALUES(?,?,?,?,?)
-		 ON CONFLICT(id) DO UPDATE SET name=excluded.name, graph=excluded.graph, host_id=excluded.host_id`,
-		w.ID, w.WorkspaceID, w.HostID, w.Name, w.Graph,
+		`INSERT INTO workflows(id, workspace_id, name, graph) VALUES(?,?,?,?)
+		 ON CONFLICT(id) DO UPDATE SET name=excluded.name, graph=excluded.graph`,
+		w.ID, w.WorkspaceID, w.Name, w.Graph,
 	)
 	return err
 }

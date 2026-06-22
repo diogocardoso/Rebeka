@@ -4,14 +4,13 @@ import { getWindow } from './window.js';
 let state = {
   uiState: {
     activeWorkspaceId: '',
-    activeHostId: '',
+    activeEnvironmentId: '',
     activeRequestId: '',
     activeView: 'request',
     sidebarWidth: 280,
   },
   workspaces: [],
-  hosts: [],
-  activeHost: null,
+  activeEnvironment: null,
   tree: [],
   requests: {},
   environments: [],
@@ -126,7 +125,17 @@ export async function hydrate() {
   const viewAtStart = state.uiState.activeView;
   hydrating = true;
 
-  const loaded = await data.persist.load();
+  let loaded = null;
+  try {
+    loaded = await data.persist.load();
+  } catch (e) {
+    console.error('Load failed (backend):', e);
+    hydrating = false;
+    state.loading = false;
+    notify();
+    return;
+  }
+
   if (!loaded) {
     hydrating = false;
     state.loading = false;
@@ -136,14 +145,23 @@ export async function hydrate() {
   try {
     const requests = {};
     (loaded.requests || []).forEach((r) => { requests[r.id] = r; });
-    const envVars = {};
-    let activeHost = null;
-    if (loaded.uiState?.activeWorkspaceId) {
-      const hostResult = await data.host.getActiveVars(loaded.uiState.activeWorkspaceId);
-      Object.assign(envVars, hostResult?.variables || {});
-      activeHost = hostResult?.host || (loaded.hosts || []).find(
-        (h) => h.id === loaded.uiState?.activeHostId,
-      ) || null;
+
+    const wsId = loaded.uiState?.activeWorkspaceId;
+    let activeEnvironment = null;
+    let envVars = {};
+
+    const envId = loaded.uiState?.activeEnvironmentId
+      || loaded.uiState?.activeHostId
+      || '';
+
+    if (wsId) {
+      const info = await data.env.getActiveInfo(wsId);
+      envVars = info?.variables || {};
+      activeEnvironment = info?.environment
+        || (loaded.environments || []).find((e) => e.id === envId)
+        || (loaded.environments || []).find((e) => e.isActive)
+        || (loaded.environments || [])[0]
+        || null;
     }
 
     const loadedUI = loaded.uiState || state.uiState;
@@ -154,12 +172,17 @@ export async function hydrate() {
       activeView = viewAtEnd;
     }
 
+    const activeEnvironmentId = envId || activeEnvironment?.id || '';
+
     state = {
       ...state,
-      uiState: { ...loadedUI, activeView },
+      uiState: {
+        ...loadedUI,
+        activeView,
+        activeEnvironmentId,
+      },
       workspaces: loaded.workspaces || [],
-      hosts: loaded.hosts || [],
-      activeHost,
+      activeEnvironment,
       tree: loaded.tree || [],
       requests,
       environments: loaded.environments || [],

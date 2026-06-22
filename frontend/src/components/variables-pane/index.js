@@ -18,50 +18,29 @@ async function render(state) {
   }
 
   const token = ++renderToken;
-  const hostId = state.uiState.activeHostId;
   const wsId = state.uiState.activeWorkspaceId;
+  const envId = state.uiState.activeEnvironmentId;
 
-  if (!hostId) {
-    el.innerHTML = '<div class="empty-pane">Configure um host para gerenciar variáveis</div>';
+  if (!wsId || !envId) {
+    el.innerHTML = '<div class="empty-pane">Selecione um ambiente no header para gerenciar variáveis</div>';
     return;
   }
 
   let envs = state.environments || [];
   if (!envs.length) {
-    envs = await APP.components.envManager.findAll(hostId) || [];
+    envs = await APP.components.envManager.findAll(wsId) || [];
   }
 
   if (token !== renderToken) return;
 
-  const env = envs.find((e) => e.isActive) || envs[0];
+  const env = envs.find((e) => e.id === envId) || envs.find((e) => e.isActive) || envs[0];
 
   if (!env) {
-    renderCreateProfile(wsId, hostId, token);
+    el.innerHTML = '<div class="empty-pane">Nenhum ambiente configurado</div>';
     return;
   }
 
   renderEditor(env, wsId);
-}
-
-function renderCreateProfile(wsId, hostId, token) {
-  el.innerHTML = `
-    <div class="variables-pane">
-      <div class="pane-header">
-        <h3>Variáveis</h3>
-      </div>
-      <div class="empty-pane" style="flex-direction:column;gap:12px">
-        <p>Nenhum perfil de variáveis neste host.</p>
-        <button class="btn btn-primary" data-action="create-profile">Criar perfil Padrão</button>
-      </div>
-    </div>
-  `;
-
-  el.querySelector('[data-action="create-profile"]')?.addEventListener('click', async () => {
-    await APP.components.envManager.create(wsId, 'Padrão');
-    if (token === renderToken) {
-      render(getState());
-    }
-  });
 }
 
 function renderEditor(env, wsId) {
@@ -116,7 +95,7 @@ function bindEvents(envId, wsId) {
   el.querySelector('[data-action="save-vars"]')?.addEventListener('click', async () => {
     const rows = collectRows();
     await APP.components.envManager.edit(envId, rows, wsId);
-    alert('Variáveis salvas');
+    APP.toast?.('Variáveis salvas', { type: 'success' });
   });
 }
 

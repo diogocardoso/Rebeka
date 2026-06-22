@@ -8,7 +8,7 @@ import { isNodeExpanded, toggleNodeExpanded, expandNode } from './expanded.js';
 import { Handlers } from './handlers.js';
 import { bindTreeDragDrop, shouldSuppressTreeClick } from './dragdrop.js';
 import { moveNode } from './move.js';
-import { MirrorBranchForm } from '../host-manager/forms.js';
+import { toggleDocsDrawer, isDocsOpen } from '../docs-pane/index.js';
 
 const Sidebar = new WA.Element();
 let el = null;
@@ -20,7 +20,7 @@ const icon_delete = WA.Icon.show({ type: 'trash', color: '#fff', size: 16 });
 const icon_settings = WA.Icon.show({ type: 'settings3', color: '#fff', size: 16 });
 const icon_rename = WA.Icon.show({ type: 'rename', color: '#fff', size: 16 });
 const icon_variables = WA.Icon.show({ type: 'config_fill', color:'var(--orange-5)', size: 12 });
-const icon_scripts = WA.Icon.show({ type: 'page3', color: 'var(--yellow-5)', size: 12 });
+const icon_docs = WA.Icon.show({ type: 'doc', color: 'var(--accent)', size: 12 });
 
 const Template = {
   menuActions: {
@@ -28,7 +28,6 @@ const Template = {
       const jsonNode = WA.hp.json_encode(item);
       return `
         <div class="item" onclick="addRequest('${jsonNode}');"><span>Request</span> ${icon_add}</div>
-        <div class="item" onclick="mirrorCollection('${jsonNode}');"><span>Espelhar coleção</span> ${icon_add}</div>
         <div class="item" onclick="editSidebar('${jsonNode}');"><span>Renomear</span> ${icon_rename}</div>
         <div class="item" onclick="confirmDeleteSidebar('${jsonNode}');"><span>Excluir</span> ${icon_delete}</div>
       `;
@@ -36,7 +35,6 @@ const Template = {
     request(item) {
       const jsonNode = WA.hp.json_encode(item);
       return `
-        <div class="item" onclick="mirrorRequest('${jsonNode}');"><span>Espelhar request</span> ${icon_add}</div>
         <div class="item" onclick="editSidebar('${jsonNode}');"><span>Renomear</span> ${icon_rename}</div>
         <div class="item" onclick="confirmDeleteSidebar('${jsonNode}');"><span>Excluir</span> ${icon_delete}</div>
       `;
@@ -56,62 +54,44 @@ export function mountSidebar(container) {
   render(getState());
   new Handlers().register();
 
-  APP.fn('mirrorCollection', (itemJson) => {
-    const item = WA.hp.json_decode(itemJson);
-    openMirrorBranch(item.name, item.id);
-  });
-
-  APP.fn('mirrorRequest', (itemJson) => {
-    const item = WA.hp.json_decode(itemJson);
-    openMirrorBranch(item.name, item.id);
-  });
-}
-
-function openMirrorBranch(label, nodeId) {
-  const state = getState();
-  const targets = (state.hosts || []).filter((h) => h.id !== state.uiState.activeHostId);
-  new MirrorBranchForm(label, targets, async (targetHostId) => {
-    await APP.components.host.mirrorBranch(nodeId, targetHostId);
-    if (targetHostId === getState().uiState.activeHostId) {
-      await APP.components.host.reloadActiveHost();
-    }
-    alert('Espelhado com sucesso.');
-  }).show();
+  window.addEventListener('rebeka:docs-toggle', () => render(getState()));
 }
 
 function renderSpecialItems(state) {
   const view = state.uiState.activeView;
   return `
-    <div class="tree-node tree-special ${view === 'variables' ? 'active' : ''}" data-type="variables" style="padding-left:12px">
+    <div class="tree-node tree-special ${view === 'variables' ? 'active' : ''}" data-type="variables" style="padding-left:0">
       <span class="tree-spacer"></span>
       <span class="tree-icon">${icon_variables}</span>
-      <span class="tree-label">Variáveis</span>
-    </div>
-    <div class="tree-node tree-special ${view === 'scripts' ? 'active' : ''}" data-type="scripts" style="padding-left:12px">
-      <span class="tree-spacer"></span>
-      <span class="tree-icon">${icon_scripts}</span>
-      <span class="tree-label">Scripts</span>
-    </div>
+      <span class="m-let-1 f-size-1 c-orange-5">Variáveis</span>
+    </div>   
   `;
 }
 
 function render(state) {
   if (!el) return;
-  const hostId = state.uiState.activeHostId;
-  const roots = treeChildren(null).filter((n) => n.hostId === hostId || !hostId);
+  const roots = treeChildren(null);
 
   Sidebar.content('main', `
-    <div class="sidebar-header">
-      <span class="sidebar-title">Coleções</span>
-      <div class="sidebar-actions">
-        <button class="btn-icon" data-action="add-folder" title="Nova pasta">${icon_folder}</button>
-        <button class="btn-icon" data-action="add-request" title="Nova requisição">${icon_add}</button>
-        <button class="btn-icon" title="Excluir workspace" onclick="confirmDeleteWorkspace();">${icon_delete}</button>
+    <div class="sidebar-inner">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Coleções</span>
+        <div class="sidebar-actions">
+          <button class="btn-icon" data-action="add-folder" title="Nova pasta">${icon_folder}</button>
+          <button class="btn-icon" data-action="add-request" title="Nova requisição">${icon_add}</button>
+          <button class="btn-icon" title="Excluir workspace" onclick="confirmDeleteWorkspace();">${icon_delete}</button>
+        </div>
       </div>
-    </div>
-    <div class="sidebar-tree scroll-y">
-      ${renderSpecialItems(state)}
-      ${roots.map((n) => renderNode(n, state, 0)).join('')}
+      <div class="sidebar-tree scroll-y">
+        ${renderSpecialItems(state)}
+        ${roots.map((n) => renderNode(n, state, 0)).join('')}
+      </div>
+      <div class="sidebar-footer">
+        <button type="button" class="sidebar-docs-btn ${isDocsOpen() ? 'active' : ''}" data-action="toggle-docs">
+          <span class="tree-icon">${icon_docs}</span>
+          <span>Documentação</span>
+        </button>
+      </div>
     </div>
   `);
 
@@ -120,6 +100,11 @@ function render(state) {
 
   Sidebar.addEvent('add-folder', 'click', () => createNode('folder', 'Nova Pasta'));
   Sidebar.addEvent('add-request', 'click', () => createNode('request', 'Nova Requisição'));
+
+  el.querySelector('[data-action="toggle-docs"]')?.addEventListener('click', () => {
+    toggleDocsDrawer();
+    render(getState());
+  });
 
   bindTreeEvents(state);
 
@@ -170,9 +155,9 @@ function renderNode(node, state, depth) {
 }
 
 function methodIcon(method) {
-  const colors = { GET: '#61affe', POST: '#49cc90', PUT: '#fca130', PATCH: '#50e3c2', DELETE: '#f93e3e' };
+  const colors = { GET: '#61affe', POST: '#49cc90', PUT: '#fca130', PATCH: '#51A2FF', DELETE: '#f93e3e' };
   const m = (method || 'GET').toUpperCase();
-  return `<span style="color:${colors[m] || '#aaa'};font-size:10px;font-weight:700">${m.slice(0, 3)}</span>`;
+  return `<span style="color:${colors[m] || '#aaa'};font-size:10px;font-weight:700">${m}</span>`;
 }
 
 function bindTreeEvents(state) {

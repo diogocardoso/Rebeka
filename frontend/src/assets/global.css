@@ -7,8 +7,9 @@
   --border: #3a3a4d;
   --text: #e0e0e8;
   --text-muted: #9090a8;
-  --accent: #6c5ce7;
-  --accent-hover: #7d6ff0;
+  --accent:	#733E0A;
+  --accent-hover: var(--orange-6);
+  --text-accent: #dfc495;
   --success: #00b894;
   --warning: #fdcb6e;
   --danger: #e17055;
@@ -144,7 +145,7 @@ input:focus, select:focus, textarea:focus {
 
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--text-accent);
 }
 .btn-primary:hover { background: var(--accent-hover); }
 

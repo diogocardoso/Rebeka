@@ -1,11 +1,13 @@
-export function runPreScript(script, ctx) {
+import { data as api } from '../core/data/index.js';
+
+export async function runPreScript(script, ctx, executeFn) {
   if (!script?.trim()) return { logs: [] };
-  return runScript(script, ctx, 'pre');
+  return runScript(script, ctx, 'pre', executeFn);
 }
 
-export function runPostScript(script, ctx) {
+export async function runPostScript(script, ctx, executeFn) {
   if (!script?.trim()) return { results: [], logs: [] };
-  const { results, logs } = runScript(script, ctx, 'post');
+  const { results, logs } = await runScript(script, ctx, 'post', executeFn);
   return { results, logs };
 }
 
@@ -25,7 +27,9 @@ function makeConsole(logs, phase) {
   };
 }
 
-function runScript(script, ctx, phase) {
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+
+async function runScript(script, ctx, phase, executeFn) {
   const results = [];
   const logs = [];
   const assertions = {
@@ -51,20 +55,37 @@ function runScript(script, ctx, phase) {
     },
   };
 
-  const api = {
-    req: ctx.req,
-    res: ctx.res,
-    env: ctx.env,
-    assert: assertions,
-    setVar(key, value) {
-      ctx.env[key] = String(value);
-    },
-    console: makeConsole(logs, phase),
+  const execute = async (path, workspaceName) => {
+    if (!executeFn) {
+      throw new Error('execute() indisponível');
+    }
+    logs.push({
+      level: 'log',
+      phase,
+      message: `execute(${path}${workspaceName ? `, ${workspaceName}` : ''})`,
+      ts: Date.now(),
+    });
+    const result = await executeFn(path, workspaceName, ctx.env);
+    if (result?.env) {
+      Object.assign(ctx.env, result.env);
+    }
+    return result;
   };
 
   try {
-    const fn = new Function('req', 'res', 'env', 'assert', 'setVar', 'console', script);
-    fn(api.req, api.res, api.env, api.assert, api.setVar, api.console);
+    const fn = new AsyncFunction(
+      'req', 'res', 'env', 'assert', 'setVar', 'console', 'execute',
+      script,
+    );
+    await fn(
+      ctx.req,
+      ctx.res,
+      ctx.env,
+      assertions,
+      (key, value) => { ctx.env[key] = String(value); },
+      makeConsole(logs, phase),
+      execute,
+    );
   } catch (e) {
     results.push({ name: `${phase}-script`, passed: false, message: e.message });
   }

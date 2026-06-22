@@ -14,14 +14,23 @@ type EnvVariable struct {
 type Environment struct {
 	ID          string        `json:"id"`
 	WorkspaceID string        `json:"workspaceId"`
-	HostID      string        `json:"hostId"`
 	Name        string        `json:"name"`
+	BaseURL     string        `json:"baseUrl"`
 	IsActive    bool          `json:"isActive"`
+	HostID      string        `json:"hostId,omitempty"` // legado v1.1
 	Variables   []EnvVariable `json:"variables,omitempty"`
 }
 
+type ActiveEnvironmentResult struct {
+	Environment Environment     `json:"environment"`
+	Variables   map[string]string `json:"variables"`
+}
+
 func (db *DB) ListEnvironmentsByHost(hostID string) ([]Environment, error) {
-	rows, err := db.conn.Query(`SELECT id, workspace_id, host_id, name, is_active FROM environments WHERE host_id = ? ORDER BY name`, hostID)
+	rows, err := db.conn.Query(
+		`SELECT id, workspace_id, host_id, name, base_url, is_active FROM environments WHERE host_id = ? ORDER BY name`,
+		hostID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +39,10 @@ func (db *DB) ListEnvironmentsByHost(hostID string) ([]Environment, error) {
 }
 
 func (db *DB) ListEnvironments(workspaceID string) ([]Environment, error) {
-	rows, err := db.conn.Query(`SELECT id, workspace_id, host_id, name, is_active FROM environments WHERE workspace_id = ? ORDER BY name`, workspaceID)
+	rows, err := db.conn.Query(
+		`SELECT id, workspace_id, host_id, name, base_url, is_active FROM environments WHERE workspace_id = ? ORDER BY name`,
+		workspaceID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -41,16 +53,10 @@ func (db *DB) ListEnvironments(workspaceID string) ([]Environment, error) {
 func scanEnvironments(rows *sql.Rows) ([]Environment, error) {
 	var list []Environment
 	for rows.Next() {
-		var e Environment
-		var active int
-		var hostID sql.NullString
-		if err := rows.Scan(&e.ID, &e.WorkspaceID, &hostID, &e.Name, &active); err != nil {
+		e, err := scanEnvironmentRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		if hostID.Valid {
-			e.HostID = hostID.String
-		}
-		e.IsActive = active == 1
 		list = append(list, e)
 	}
 	return list, rows.Err()
@@ -73,14 +79,17 @@ func (db *DB) ListEnvVariables(envID string) ([]EnvVariable, error) {
 	return list, rows.Err()
 }
 
-func (db *DB) CreateEnvironment(workspaceID, hostID, name string) (Environment, error) {
-	e := Environment{ID: NewID(), WorkspaceID: workspaceID, HostID: hostID, Name: name}
-	_, err := db.conn.Exec(`INSERT INTO environments(id, workspace_id, host_id, name) VALUES(?,?,?,?)`, e.ID, e.WorkspaceID, e.HostID, e.Name)
+func (db *DB) CreateEnvironment(workspaceID, name, baseURL string) (Environment, error) {
+	e := Environment{ID: NewID(), WorkspaceID: workspaceID, Name: name, BaseURL: baseURL}
+	_, err := db.conn.Exec(
+		`INSERT INTO environments(id, workspace_id, name, base_url) VALUES(?,?,?,?)`,
+		e.ID, e.WorkspaceID, e.Name, e.BaseURL,
+	)
 	return e, err
 }
 
-func (db *DB) UpdateEnvironment(id, name string) error {
-	_, err := db.conn.Exec(`UPDATE environments SET name = ? WHERE id = ?`, name, id)
+func (db *DB) UpdateEnvironment(id, name, baseURL string) error {
+	_, err := db.conn.Exec(`UPDATE environments SET name = ?, base_url = ? WHERE id = ?`, name, baseURL, id)
 	return err
 }
 
@@ -99,13 +108,13 @@ func (db *DB) DeleteEnvironment(id string) error {
 	return tx.Commit()
 }
 
-func (db *DB) SetActiveEnvironment(hostID, envID string) error {
+func (db *DB) SetActiveEnvironmentByWorkspace(workspaceID, envID string) error {
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE environments SET is_active = 0 WHERE host_id = ?`, hostID); err != nil {
+	if _, err := tx.Exec(`UPDATE environments SET is_active = 0 WHERE workspace_id = ?`, workspaceID); err != nil {
 		return err
 	}
 	if envID != "" {
@@ -116,20 +125,26 @@ func (db *DB) SetActiveEnvironment(hostID, envID string) error {
 	return tx.Commit()
 }
 
-func (db *DB) GetActiveEnvironmentByHost(hostID string) (Environment, map[string]string, error) {
+func (db *DB) GetActiveEnvironment(workspaceID string) (Environment, map[string]string, error) {
 	var e Environment
 	var active int
-	var hostIDCol sql.NullString
-	err := db.conn.QueryRow(`SELECT id, workspace_id, host_id, name, is_active FROM environments WHERE host_id = ? AND is_active = 1 LIMIT 1`, hostID).
-		Scan(&e.ID, &e.WorkspaceID, &hostIDCol, &e.Name, &active)
+	var hostID sql.NullString
+	var baseURL sql.NullString
+	err := db.conn.QueryRow(
+		`SELECT id, workspace_id, host_id, name, base_url, is_active FROM environments WHERE workspace_id = ? AND is_active = 1 LIMIT 1`,
+		workspaceID,
+	).Scan(&e.ID, &e.WorkspaceID, &hostID, &e.Name, &baseURL, &active)
 	if err == sql.ErrNoRows {
 		return Environment{}, map[string]string{}, nil
 	}
 	if err != nil {
 		return e, nil, err
 	}
-	if hostIDCol.Valid {
-		e.HostID = hostIDCol.String
+	if hostID.Valid {
+		e.HostID = hostID.String
+	}
+	if baseURL.Valid {
+		e.BaseURL = baseURL.String
 	}
 	e.IsActive = active == 1
 	vars, err := db.ListEnvVariables(e.ID)
@@ -144,15 +159,12 @@ func (db *DB) GetActiveEnvironmentByHost(hostID string) (Environment, map[string
 	return e, m, nil
 }
 
-func (db *DB) GetActiveEnvironment(workspaceID string) (Environment, map[string]string, error) {
-	host, err := db.GetActiveHost(workspaceID)
+func (db *DB) GetActiveEnvironmentInfo(workspaceID string) (ActiveEnvironmentResult, error) {
+	env, vars, err := db.GetActiveEnvironment(workspaceID)
 	if err != nil {
-		return Environment{}, nil, err
+		return ActiveEnvironmentResult{}, err
 	}
-	if host.ID == "" {
-		return Environment{}, map[string]string{}, nil
-	}
-	return db.GetActiveEnvironmentByHost(host.ID)
+	return ActiveEnvironmentResult{Environment: env, Variables: vars}, nil
 }
 
 func (db *DB) SaveEnvVariables(envID string, vars []EnvVariable) error {
@@ -182,9 +194,9 @@ func (db *DB) saveEnvironmentTx(tx *sql.Tx, e Environment) error {
 		active = 1
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO environments(id, workspace_id, host_id, name, is_active) VALUES(?,?,?,?,?)
-		 ON CONFLICT(id) DO UPDATE SET name=excluded.name, is_active=excluded.is_active, host_id=excluded.host_id`,
-		e.ID, e.WorkspaceID, e.HostID, e.Name, active,
+		`INSERT INTO environments(id, workspace_id, name, base_url, is_active) VALUES(?,?,?,?,?)
+		 ON CONFLICT(id) DO UPDATE SET name=excluded.name, base_url=excluded.base_url, is_active=excluded.is_active`,
+		e.ID, e.WorkspaceID, e.Name, e.BaseURL, active,
 	); err != nil {
 		return err
 	}
@@ -207,7 +219,6 @@ func (db *DB) saveEnvironmentTx(tx *sql.Tx, e Environment) error {
 type ManageEnvsInput struct {
 	Action      string        `json:"action"`
 	WorkspaceID string        `json:"workspaceId"`
-	HostID      string        `json:"hostId"`
 	Environment Environment   `json:"environment"`
 	Variables   []EnvVariable `json:"variables"`
 	EnvID       string        `json:"envId"`
@@ -216,20 +227,6 @@ type ManageEnvsInput struct {
 func (db *DB) ManageEnvs(input ManageEnvsInput) (interface{}, error) {
 	switch input.Action {
 	case "list":
-		if input.HostID != "" {
-			envs, err := db.ListEnvironmentsByHost(input.HostID)
-			if err != nil {
-				return nil, err
-			}
-			for i := range envs {
-				vars, err := db.ListEnvVariables(envs[i].ID)
-				if err != nil {
-					return nil, err
-				}
-				envs[i].Variables = vars
-			}
-			return envs, nil
-		}
 		envs, err := db.ListEnvironments(input.WorkspaceID)
 		if err != nil {
 			return nil, err
@@ -243,28 +240,33 @@ func (db *DB) ManageEnvs(input ManageEnvsInput) (interface{}, error) {
 		}
 		return envs, nil
 	case "create":
-		hostID := input.HostID
-		if hostID == "" {
-			hostID = input.Environment.HostID
+		baseURL := input.Environment.BaseURL
+		if baseURL == "" {
+			baseURL = "http://localhost:3000"
 		}
-		return db.CreateEnvironment(input.WorkspaceID, hostID, input.Environment.Name)
+		env, err := db.CreateEnvironment(input.WorkspaceID, input.Environment.Name, baseURL)
+		if err != nil {
+			return nil, err
+		}
+		envs, _ := db.ListEnvironments(input.WorkspaceID)
+		if len(envs) == 1 {
+			_ = db.SetActiveEnvironmentByWorkspace(input.WorkspaceID, env.ID)
+			env.IsActive = true
+		}
+		return env, nil
 	case "update":
-		if err := db.UpdateEnvironment(input.Environment.ID, input.Environment.Name); err != nil {
+		baseURL := input.Environment.BaseURL
+		if baseURL == "" {
+			baseURL = "http://localhost:3000"
+		}
+		if err := db.UpdateEnvironment(input.Environment.ID, input.Environment.Name, baseURL); err != nil {
 			return nil, err
 		}
 		return input.Environment, nil
 	case "delete":
 		return nil, db.DeleteEnvironment(input.EnvID)
 	case "setActive":
-		hostID := input.HostID
-		if hostID == "" && input.EnvID != "" {
-			var h sql.NullString
-			_ = db.conn.QueryRow(`SELECT host_id FROM environments WHERE id = ?`, input.EnvID).Scan(&h)
-			if h.Valid {
-				hostID = h.String
-			}
-		}
-		return nil, db.SetActiveEnvironment(hostID, input.EnvID)
+		return nil, db.SetActiveEnvironmentByWorkspace(input.WorkspaceID, input.EnvID)
 	case "saveVariables":
 		return nil, db.SaveEnvVariables(input.EnvID, input.Variables)
 	default:

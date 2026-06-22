@@ -1,32 +1,27 @@
 import { getState } from '../../core/store.js';
 import { APP } from '../../core/app.js';
-import { HostForm, MirrorHostForm } from './forms.js';
+import { EnvironmentForm } from './forms.js';
 
 let modalRoot = null;
 
-export function openHostModal() {
+export function openEnvironmentModal() {
   const state = getState();
   const wsId = state.uiState.activeWorkspaceId;
   if (!wsId) return;
 
   const content = document.createElement('div');
   content.className = 'host-modal';
-  content.innerHTML = `
-    <div class="host-list" id="host-list"></div>
-    <div class="host-actions">
-      <button class="btn btn-ghost" id="host-mirror-btn">Espelhar estrutura</button>
-    </div>
-  `;
+  content.innerHTML = `<div class="host-list" id="env-list"></div>`;
 
   if (typeof APP !== 'undefined' && APP.box) {
-    APP.box('host-manager', {
-      title: 'Gerenciar Hosts',
+    APP.box('environment-manager', {
+      title: 'Gerenciar Ambientes',
       content: content.outerHTML,
       width: 520,
       height: 420,
       btClose: true,
     });
-    setTimeout(() => bindHostModal(wsId), 100);
+    setTimeout(() => bindEnvironmentModal(wsId), 100);
   } else {
     renderInlineModal(content, wsId);
   }
@@ -35,11 +30,11 @@ export function openHostModal() {
 function renderInlineModal(content, wsId) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
-  overlay.id = 'host-manager-overlay';
+  overlay.id = 'environment-manager-overlay';
   overlay.innerHTML = `
     <div class="modal-box">
       <div class="modal-header">
-        <h3>Gerenciar Hosts</h3>
+        <h3>Gerenciar Ambientes</h3>
         <button class="modal-close">×</button>
       </div>
       <div class="modal-body">${content.innerHTML}</div>
@@ -48,83 +43,69 @@ function renderInlineModal(content, wsId) {
   document.body.appendChild(overlay);
   modalRoot = overlay;
   overlay.querySelector('.modal-close')?.addEventListener('click', () => overlay.remove());
-  bindHostModal(wsId, overlay);
+  bindEnvironmentModal(wsId, overlay);
 }
 
 function getModalRoot() {
   if (modalRoot?.isConnected) return modalRoot;
-  return document.getElementById('host-manager')?.closest('.WA-box') || document.body;
+  return document.getElementById('environment-manager')?.closest('.WA-box') || document.body;
 }
 
-async function bindHostModal(wsId, root = getModalRoot()) {
-  const listEl = root.querySelector('#host-list') || document.getElementById('host-list');
+async function bindEnvironmentModal(wsId, root = getModalRoot()) {
+  const listEl = root.querySelector('#env-list') || document.getElementById('env-list');
   if (!listEl) return;
 
-  const hosts = await APP.components.host.findAll(wsId);
+  const envs = await APP.components.environment.findAll(wsId);
   const state = getState();
 
   listEl.innerHTML = `
-    <button class="btn btn-ghost host-add">+ Novo host</button>
-    ${(hosts || []).map((h) => `
-      <div class="host-item ${h.isActive ? 'active' : ''}" data-host-id="${h.id}">
+    <button class="btn btn-ghost host-add">+ Novo ambiente</button>
+    ${(envs || []).map((e) => `
+      <div class="host-item ${e.isActive || e.id === state.uiState.activeEnvironmentId ? 'active' : ''}" data-env-id="${e.id}">
         <div class="host-item-info">
-          <strong>${escape(h.name)}</strong>
-          <span class="text-muted">${escape(h.baseUrl)}</span>
+          <strong>${escape(e.name)}</strong>
+          <span class="text-muted">${escape(e.baseUrl || '')}</span>
         </div>
         <div class="host-item-actions">
-          <button data-activate="${h.id}" title="Ativar">✓</button>
-          <button data-edit="${h.id}" title="Editar">✎</button>
-          <button data-delete-host="${h.id}" title="Excluir">×</button>
+          <button data-activate="${e.id}" title="Ativar">✓</button>
+          <button data-edit="${e.id}" title="Editar">✎</button>
+          <button data-delete-env="${e.id}" title="Excluir">×</button>
         </div>
       </div>
     `).join('')}
   `;
 
   listEl.querySelector('.host-add')?.addEventListener('click', () => {
-    new HostForm(null, async ({ name, baseUrl }) => {
-      await APP.components.host.create(wsId, name, baseUrl);
-      bindHostModal(wsId, root);
+    new EnvironmentForm(null, async ({ name, baseUrl }) => {
+      await APP.components.environment.create(wsId, name, baseUrl);
+      bindEnvironmentModal(wsId, root);
     }).show();
   });
 
   listEl.querySelectorAll('[data-activate]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      await APP.components.host.activate(wsId, btn.dataset.activate);
-      bindHostModal(wsId, root);
+      await APP.components.environment.activate(wsId, btn.dataset.activate);
+      bindEnvironmentModal(wsId, root);
     });
   });
 
   listEl.querySelectorAll('[data-edit]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const host = (hosts || []).find((h) => h.id === btn.dataset.edit);
-      if (!host) return;
-      new HostForm(host, async ({ name, baseUrl }) => {
-        await APP.components.host.edit({ ...host, name, baseUrl });
-        bindHostModal(wsId, root);
+      const env = (envs || []).find((e) => e.id === btn.dataset.edit);
+      if (!env) return;
+      new EnvironmentForm(env, async ({ name, baseUrl }) => {
+        await APP.components.environment.edit({ ...env, name, baseUrl });
+        bindEnvironmentModal(wsId, root);
       }).show();
     });
   });
 
-  listEl.querySelectorAll('[data-delete-host]').forEach((btn) => {
+  listEl.querySelectorAll('[data-delete-env]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Excluir host e todos os dados associados?')) return;
-      await APP.components.host.delete(btn.dataset.deleteHost);
-      bindHostModal(wsId, root);
+      if (!confirm('Excluir ambiente e suas variáveis?')) return;
+      await APP.components.environment.delete(btn.dataset.deleteEnv);
+      bindEnvironmentModal(wsId, root);
     });
-  });
-
-  const mirrorBtn = root.querySelector('#host-mirror-btn') || document.getElementById('host-mirror-btn');
-  mirrorBtn?.replaceWith(mirrorBtn.cloneNode(true));
-  root.querySelector('#host-mirror-btn')?.addEventListener('click', () => {
-    const source = (hosts || []).find((h) => h.id === state.uiState.activeHostId) || hosts?.[0];
-    if (!source) return;
-    new MirrorHostForm(source, hosts, async (sourceId, targetId) => {
-      await APP.components.host.mirror(sourceId, targetId);
-      if (targetId === getState().uiState.activeHostId) {
-        await APP.components.host.reloadActiveHost();
-      }
-      alert('Estrutura espelhada com sucesso.');
-    }).show();
   });
 }
 
@@ -133,3 +114,6 @@ function escape(s) {
   d.textContent = s;
   return d.innerHTML;
 }
+
+// compatibilidade
+export const openHostModal = openEnvironmentModal;

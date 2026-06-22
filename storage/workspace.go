@@ -16,7 +16,6 @@ type Workspace struct {
 type TreeNode struct {
 	ID          string  `json:"id"`
 	WorkspaceID string  `json:"workspaceId"`
-	HostID      string  `json:"hostId"`
 	ParentID    *string `json:"parentId"`
 	Name        string  `json:"name"`
 	Type        string  `json:"type"`
@@ -91,19 +90,15 @@ func (db *DB) CreateWorkspace(name string) (Workspace, error) {
 }
 
 func (db *DB) BootstrapWorkspace(wsID string) error {
-	host, err := db.CreateHost(wsID, "Local", "http://localhost:3000")
+	env, err := db.CreateEnvironment(wsID, "Local", "http://localhost:3000")
 	if err != nil {
 		return err
 	}
-	_ = db.SetActiveHost(wsID, host.ID)
-	if _, _, err := db.CreateTreeNode(wsID, host.ID, nil, "Coleção", "folder"); err != nil {
+	if err := db.SetActiveEnvironmentByWorkspace(wsID, env.ID); err != nil {
 		return err
 	}
-	env, err := db.CreateEnvironment(wsID, host.ID, "Padrão")
-	if err != nil {
-		return err
-	}
-	return db.SetActiveEnvironment(host.ID, env.ID)
+	_, _, err = db.CreateTreeNode(wsID, nil, "Coleção", "folder")
+	return err
 }
 
 func (db *DB) UpdateWorkspace(id, name string) error {
@@ -123,9 +118,6 @@ func (db *DB) DeleteWorkspace(id string) error {
 	if _, err := tx.Exec(`DELETE FROM environments WHERE workspace_id = ?`, id); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM hosts WHERE workspace_id = ?`, id); err != nil {
-		return err
-	}
 	if _, err := tx.Exec(`DELETE FROM requests WHERE id IN (SELECT id FROM tree_nodes WHERE workspace_id = ?)`, id); err != nil {
 		return err
 	}
@@ -141,21 +133,9 @@ func (db *DB) DeleteWorkspace(id string) error {
 	return tx.Commit()
 }
 
-func (db *DB) ListTreeNodesByHost(hostID string) ([]TreeNode, error) {
-	rows, err := db.conn.Query(
-		`SELECT id, workspace_id, host_id, parent_id, name, type, sort_order FROM tree_nodes WHERE host_id = ? ORDER BY sort_order, name`,
-		hostID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanTreeNodes(rows)
-}
-
 func (db *DB) ListTreeNodes(workspaceID string) ([]TreeNode, error) {
 	rows, err := db.conn.Query(
-		`SELECT id, workspace_id, host_id, parent_id, name, type, sort_order FROM tree_nodes WHERE workspace_id = ? ORDER BY sort_order, name`,
+		`SELECT id, workspace_id, parent_id, name, type, sort_order FROM tree_nodes WHERE workspace_id = ? ORDER BY sort_order, name`,
 		workspaceID,
 	)
 	if err != nil {
@@ -169,12 +149,9 @@ func scanTreeNodes(rows *sql.Rows) ([]TreeNode, error) {
 	var list []TreeNode
 	for rows.Next() {
 		var n TreeNode
-		var parent, hostID sql.NullString
-		if err := rows.Scan(&n.ID, &n.WorkspaceID, &hostID, &parent, &n.Name, &n.Type, &n.SortOrder); err != nil {
+		var parent sql.NullString
+		if err := rows.Scan(&n.ID, &n.WorkspaceID, &parent, &n.Name, &n.Type, &n.SortOrder); err != nil {
 			return nil, err
-		}
-		if hostID.Valid {
-			n.HostID = hostID.String
 		}
 		if parent.Valid {
 			p := parent.String
@@ -183,19 +160,6 @@ func scanTreeNodes(rows *sql.Rows) ([]TreeNode, error) {
 		list = append(list, n)
 	}
 	return list, rows.Err()
-}
-
-func (db *DB) ListRequestsForHost(hostID string) ([]RequestData, error) {
-	rows, err := db.conn.Query(`
-		SELECT r.id, r.method, r.url, r.url_mode, r.query_params, r.headers, r.body_type, r.body, r.auth_type, r.auth_data, r.pre_script, r.post_script
-		FROM requests r
-		JOIN tree_nodes t ON t.id = r.id
-		WHERE t.host_id = ?`, hostID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanRequests(rows)
 }
 
 func (db *DB) ListRequestsForWorkspace(workspaceID string) ([]RequestData, error) {
@@ -237,11 +201,10 @@ func (db *DB) GetRequest(id string) (RequestData, error) {
 	return r, err
 }
 
-func (db *DB) CreateTreeNode(workspaceID, hostID string, parentID *string, name, nodeType string) (TreeNode, RequestData, error) {
+func (db *DB) CreateTreeNode(workspaceID string, parentID *string, name, nodeType string) (TreeNode, RequestData, error) {
 	n := TreeNode{
 		ID:          NewID(),
 		WorkspaceID: workspaceID,
-		HostID:      hostID,
 		ParentID:    parentID,
 		Name:        name,
 		Type:        nodeType,
@@ -252,8 +215,8 @@ func (db *DB) CreateTreeNode(workspaceID, hostID string, parentID *string, name,
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(
-		`INSERT INTO tree_nodes(id, workspace_id, host_id, parent_id, name, type) VALUES(?,?,?,?,?,?)`,
-		n.ID, n.WorkspaceID, n.HostID, parentID, n.Name, n.Type,
+		`INSERT INTO tree_nodes(id, workspace_id, parent_id, name, type) VALUES(?,?,?,?,?)`,
+		n.ID, n.WorkspaceID, parentID, n.Name, n.Type,
 	); err != nil {
 		return n, RequestData{}, err
 	}
@@ -332,9 +295,9 @@ func (db *DB) replaceTreeTx(tx *sql.Tx, workspaceID string, nodes []TreeNode) er
 			parent = *n.ParentID
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO tree_nodes(id, workspace_id, host_id, parent_id, name, type, sort_order) VALUES(?,?,?,?,?,?,?)
-			 ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id, name=excluded.name, type=excluded.type, sort_order=excluded.sort_order, host_id=excluded.host_id`,
-			n.ID, workspaceID, n.HostID, parent, n.Name, n.Type, n.SortOrder,
+			`INSERT INTO tree_nodes(id, workspace_id, parent_id, name, type, sort_order) VALUES(?,?,?,?,?,?)
+			 ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id, name=excluded.name, type=excluded.type, sort_order=excluded.sort_order`,
+			n.ID, workspaceID, parent, n.Name, n.Type, n.SortOrder,
 		); err != nil {
 			return err
 		}
@@ -375,11 +338,11 @@ func (db *DB) SaveRequest(r RequestData) error {
 type WorkspaceExport struct {
 	Version      string        `json:"version"`
 	Workspace    Workspace     `json:"workspace"`
-	Hosts        []Host        `json:"hosts"`
 	Tree         []TreeNode    `json:"tree"`
 	Requests     []RequestData `json:"requests"`
 	Environments []Environment `json:"environments"`
 	Workflows    []Workflow    `json:"workflows"`
+	Hosts        []Host        `json:"hosts,omitempty"` // legado v1.1
 }
 
 func (db *DB) ExportWorkspace(workspaceID string) (WorkspaceExport, error) {
@@ -387,10 +350,7 @@ func (db *DB) ExportWorkspace(workspaceID string) (WorkspaceExport, error) {
 	if err != nil {
 		return WorkspaceExport{}, err
 	}
-	hosts, err := db.ListHosts(workspaceID)
-	if err != nil {
-		return WorkspaceExport{}, err
-	}
+	hosts, _ := db.ListHosts(workspaceID)
 	tree, err := db.ListTreeNodes(workspaceID)
 	if err != nil {
 		return WorkspaceExport{}, err
@@ -415,7 +375,7 @@ func (db *DB) ExportWorkspace(workspaceID string) (WorkspaceExport, error) {
 		return WorkspaceExport{}, err
 	}
 	return WorkspaceExport{
-		Version:      "1.1",
+		Version:      "1.2",
 		Workspace:    ws,
 		Hosts:        hosts,
 		Tree:         tree,
@@ -428,7 +388,7 @@ func (db *DB) ExportWorkspace(workspaceID string) (WorkspaceExport, error) {
 func (db *DB) ImportWorkspace(data WorkspaceExport) (Workspace, error) {
 	newWS := Workspace{ID: NewID(), Name: data.Workspace.Name + " (importado)"}
 	idMap := map[string]string{data.Workspace.ID: newWS.ID}
-	hostIDMap := map[string]string{}
+	envIDMap := map[string]string{}
 
 	tx, err := db.conn.Begin()
 	if err != nil {
@@ -440,24 +400,60 @@ func (db *DB) ImportWorkspace(data WorkspaceExport) (Workspace, error) {
 		return newWS, err
 	}
 
+	// Importar hosts legados (v1.1) como environments
 	for _, h := range data.Hosts {
-		newHostID := NewID()
-		hostIDMap[h.ID] = newHostID
+		newEnvID := NewID()
+		envIDMap[h.ID] = newEnvID
 		active := 0
 		if h.IsActive {
 			active = 1
 		}
-		if _, err := tx.Exec(`INSERT INTO hosts(id, workspace_id, name, base_url, is_active) VALUES(?,?,?,?,?)`,
-			newHostID, newWS.ID, h.Name, h.BaseURL, active); err != nil {
-			return newWS, err
+		if _, err := tx.Exec(
+			`INSERT INTO environments(id, workspace_id, name, base_url, is_active) VALUES(?,?,?,?,?)`,
+			newEnvID, newWS.ID, h.Name, h.BaseURL, active,
+		); err != nil {
+		 return newWS, err
 		}
 	}
 
 	if len(data.Hosts) == 0 {
-		defaultHostID := NewID()
-		hostIDMap["__default__"] = defaultHostID
-		if _, err := tx.Exec(`INSERT INTO hosts(id, workspace_id, name, base_url, is_active) VALUES(?,?,?,?,1)`,
-			defaultHostID, newWS.ID, "Local", "http://localhost:3000"); err != nil {
+		for _, e := range data.Environments {
+			newEnvID := NewID()
+			envIDMap[e.ID] = newEnvID
+			baseURL := e.BaseURL
+			if baseURL == "" {
+				baseURL = "http://localhost:3000"
+			}
+			active := 0
+			if e.IsActive {
+				active = 1
+			}
+			if _, err := tx.Exec(
+				`INSERT INTO environments(id, workspace_id, name, base_url, is_active) VALUES(?,?,?,?,?)`,
+				newEnvID, newWS.ID, e.Name, baseURL, active,
+			); err != nil {
+				return newWS, err
+			}
+			for _, v := range e.Variables {
+				if v.Key == "base_url" {
+					continue
+				}
+				if _, err := tx.Exec(
+					`INSERT INTO env_variables(id, environment_id, key, value) VALUES(?,?,?,?)`,
+					NewID(), newEnvID, v.Key, v.Value,
+				); err != nil {
+					return newWS, err
+				}
+			}
+		}
+	}
+
+	if len(data.Environments) == 0 && len(data.Hosts) == 0 {
+		defaultEnvID := NewID()
+		if _, err := tx.Exec(
+			`INSERT INTO environments(id, workspace_id, name, base_url, is_active) VALUES(?,?,?,?,1)`,
+			defaultEnvID, newWS.ID, "Local", "http://localhost:3000",
+		); err != nil {
 			return newWS, err
 		}
 	}
@@ -475,18 +471,9 @@ func (db *DB) ImportWorkspace(data WorkspaceExport) (Workspace, error) {
 				parent = mapped
 			}
 		}
-		hostID := n.HostID
-		if mapped, ok := hostIDMap[hostID]; ok {
-			hostID = mapped
-		} else if len(hostIDMap) == 1 {
-			for _, v := range hostIDMap {
-				hostID = v
-				break
-			}
-		}
 		if _, err := tx.Exec(
-			`INSERT INTO tree_nodes(id, workspace_id, host_id, parent_id, name, type, sort_order) VALUES(?,?,?,?,?,?,?)`,
-			newID, newWS.ID, hostID, parent, n.Name, n.Type, n.SortOrder,
+			`INSERT INTO tree_nodes(id, workspace_id, parent_id, name, type, sort_order) VALUES(?,?,?,?,?,?)`,
+			newID, newWS.ID, parent, n.Name, n.Type, n.SortOrder,
 		); err != nil {
 			return newWS, err
 		}
@@ -506,46 +493,15 @@ func (db *DB) ImportWorkspace(data WorkspaceExport) (Workspace, error) {
 		}
 	}
 
-	for _, e := range data.Environments {
-		newEnvID := NewID()
-		hostID := e.HostID
-		if mapped, ok := hostIDMap[hostID]; ok {
-			hostID = mapped
-		} else if len(hostIDMap) == 1 {
-			for _, v := range hostIDMap {
-				hostID = v
-				break
-			}
-		}
-		active := 0
-		if e.IsActive {
-			active = 1
-		}
-		if _, err := tx.Exec(`INSERT INTO environments(id, workspace_id, host_id, name, is_active) VALUES(?,?,?,?,?)`, newEnvID, newWS.ID, hostID, e.Name, active); err != nil {
-			return newWS, err
-		}
-		for _, v := range e.Variables {
-			if _, err := tx.Exec(`INSERT INTO env_variables(id, environment_id, key, value) VALUES(?,?,?,?)`, NewID(), newEnvID, v.Key, v.Value); err != nil {
-				return newWS, err
-			}
-		}
-	}
-
 	for _, wf := range data.Workflows {
 		graph := wf.Graph
 		for oldID, newID := range idMap {
 			graph = replaceAll(graph, oldID, newID)
 		}
-		hostID := wf.HostID
-		if mapped, ok := hostIDMap[hostID]; ok {
-			hostID = mapped
-		} else if len(hostIDMap) == 1 {
-			for _, v := range hostIDMap {
-				hostID = v
-				break
-			}
-		}
-		if _, err := tx.Exec(`INSERT INTO workflows(id, workspace_id, host_id, name, graph) VALUES(?,?,?,?,?)`, NewID(), newWS.ID, hostID, wf.Name, graph); err != nil {
+		if _, err := tx.Exec(
+			`INSERT INTO workflows(id, workspace_id, name, graph) VALUES(?,?,?,?)`,
+			NewID(), newWS.ID, wf.Name, graph,
+		); err != nil {
 			return newWS, err
 		}
 	}

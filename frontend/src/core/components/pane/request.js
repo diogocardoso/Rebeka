@@ -3,12 +3,7 @@ import { data as api } from '../../data/index.js';
 import { resolveEnvVars } from '../../../utils/variables.js';
 import { isAbsoluteUrlMode } from '../../../utils/formatters.js';
 import { showToast } from '../../../utils/toast.js';
-import {
-  buildRequestContext,
-  runPreScript,
-  runPostScript,
-  applyPreScriptToRequest,
-} from '../../../utils/scriptRuntime.js';
+import { runRequestPipeline, executeByPath } from '../../../utils/scriptExecute.js';
 import { persistScriptVars } from '../envManager.js';
 import { history } from '../history.js';
 
@@ -38,48 +33,31 @@ export async function send(req, state) {
 
     patchState((s) => ({ ...s, activeEnvVars: freshVars }));
 
-    let httpReq = buildRequestContext(req, freshVars);
-    const baseURL = isAbsoluteUrlMode(req) ? '' : (state.activeHost?.baseUrl || '');
+    const result = await runRequestPipeline(req, {
+      workspaceId: wsId,
+      baseUrl: isAbsoluteUrlMode(req) ? '' : (state.activeEnvironment?.baseUrl || ''),
+      envVars: freshVars,
+      callingWorkspaceId: wsId,
+      createExecuteFn: (callingWsId) => (path, workspaceName, env) =>
+        executeByPath(path, workspaceName, env, callingWsId),
+    });
 
-    const preCtx = { req: { ...httpReq }, res: {}, env: { ...freshVars } };
-    const { logs: preLogs } = runPreScript(req.preScript, preCtx);
-    httpReq = applyPreScriptToRequest(httpReq, preCtx.req, preCtx.env);
-
-    const resp = await api.request.send(httpReq, req.id, baseURL, '[]');
-
-    const postCtx = {
-      req: httpReq,
-      res: {
-        statusCode: resp.statusCode,
-        body: resp.body,
-        headers: resp.headers,
-        durationMs: resp.durationMs,
-      },
-      env: { ...preCtx.env },
-    };
-    const { results: testResults, logs: postLogs } = runPostScript(req.postScript, postCtx);
-    const scriptLogs = [...(preLogs || []), ...(postLogs || [])];
-
-    patchState((s) => ({ ...s, activeEnvVars: postCtx.env }));
-    try {
-      await persistScriptVars(wsId, freshVars, postCtx.env);
-    } catch {
-      /* persistência de script vars não deve bloquear o envio */
-    }
-
-    const testsJson = JSON.stringify(testResults || []);
-    try {
-      await api.history.patchTests(req.id, testsJson);
-    } catch {
-      /* histórico de tests não deve bloquear o envio */
-    }
+    patchState((s) => ({ ...s, activeEnvVars: result.env || freshVars }));
 
     await history.loadForRequest(req.id);
 
+    const resp = {
+      statusCode: result.statusCode,
+      body: result.body,
+      headers: result.headers,
+      durationMs: result.durationMs,
+      error: result.error,
+    };
+
     setState({
       response: { ...resp, historyId: null },
-      testResults,
-      scriptLogs,
+      testResults: result.testResults || [],
+      scriptLogs: result.logs || [],
       requestSending: false,
     });
 

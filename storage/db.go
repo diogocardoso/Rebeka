@@ -137,5 +137,12 @@ func (db *DB) migrate() error {
 	if err := db.migrateHostSchema(); err != nil {
 		return err
 	}
-	return db.migrateRequestSchema()
+	if err := db.migrateRequestSchema(); err != nil {
+		return err
+	}
+	if err := db.migrateSharedCollections(); err != nil {
+		return err
+	}
+	db.migrateUIStateToEnvironment()
+	return nil
 }
